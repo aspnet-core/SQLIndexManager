@@ -1,35 +1,39 @@
-﻿using DevExpress.Data;
-using DevExpress.XtraEditors;
-using DevExpress.XtraGrid.Columns;
-using DevExpress.XtraGrid.Views.Base;
-using DevExpress.XtraGrid.Views.Grid;
-using DevExpress.XtraGrid.Views.Grid.ViewInfo;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Data.SqlClient;
 using System.Diagnostics;
-using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using DevExpress.Data;
+using DevExpress.XtraEditors;
+using DevExpress.XtraGrid.Columns;
+using DevExpress.XtraGrid.Views.Grid;
 using SQLIndexManager.Properties;
 
 namespace SQLIndexManager {
 
   public partial class DatabaseBox : XtraForm {
+
     public DatabaseBox() {
       InitializeComponent();
+      Text = Resources.DatabaseBoxTitle;
 
-      if (Settings.ServerInfo.IsAzure || !Settings.ServerInfo.IsSysAdmin) {
-        colDataSize.Visible = colLogSize.Visible = false;
+      view.CustomColumnDisplayText += GridMethod.GridColumnDisplayText;
+      view.RowCellStyle += GridMethod.GridRowCellStyle;
+      view.DoubleClick += GridMethod.GridDoubleClick;
+
+      if (Settings.ServerInfo.IsAzure) {
+        TotalSize.Visible = DataSize.Visible = LogSize.Visible = DataFreeSize.Visible = LogFreeSize.Visible = false;
         view.SortInfo.Clear();
-        view.SortInfo.Add(new GridColumnSortInfo(colDatabase, ColumnSortOrder.Ascending));
+        view.SortInfo.Add(new GridColumnSortInfo(DatabaseName, ColumnSortOrder.Ascending));
       }
 
-      RefreshDatabases(false);
+      RefreshDatabases();
     }
 
     private void ButtonRefreshClick(object sender, EventArgs e) {
-      RefreshDatabases(true);
+      RefreshDatabases();
     }
 
     public List<string> GetDatabases() {
@@ -44,39 +48,26 @@ namespace SQLIndexManager {
       return dbs;
     }
 
-    private void RefreshDatabases(bool scanUsedSpace) {
-      grid.DataSource = null;
-      buttonOK.Enabled = false;
-      colDataFreeSize.Visible = colLogFreeSize.Visible = scanUsedSpace
-                                                       && !Settings.ServerInfo.IsAzure
-                                                       && Settings.ServerInfo.IsSysAdmin;
+    #region Refresh Databases
 
-      Stopwatch ts = Stopwatch.StartNew();
+    private BackgroundWorker _workerScan;
+    private List<Database> _databases = new List<Database>();
+    private List<DiskInfo> _disks = new List<DiskInfo>();
+    private Stopwatch _ts = new Stopwatch();
 
+    private void ScanDatabases(object sender, DoWorkEventArgs e) {
       using (SqlConnection connection = Connection.Create(Settings.ActiveHost)) {
-
         try {
           connection.Open();
 
-          List<Database> dbs = QueryEngine.GetDatabases(connection, scanUsedSpace);
-          grid.DataSource = dbs;
-          Output.Current.Add($"Refresh {dbs.Count} databases", null, ts.ElapsedMilliseconds);
-
-          if (scanUsedSpace) {
-            var ruleDataFreeSize = view.FormatRules[Resources.DataFreeSize].RuleCast<FormatConditionRuleDataBar>();
-            var ruleLogFreeSize = view.FormatRules[Resources.LogFreeSize].RuleCast<FormatConditionRuleDataBar>();
-
-            ruleDataFreeSize.Maximum = dbs.Max(_ => _.DataSize);
-            ruleLogFreeSize.Maximum = dbs.Max(_ => _.LogSize);
+          if (!Settings.ServerInfo.IsAzure && Settings.ServerInfo.IsSysAdmin) {
+            _disks = QueryEngine.GetDiskInfo(connection);
           }
 
-          foreach (string db in Settings.ActiveHost.Databases) {
-            int index = view.LocateByValue(colDatabase.FieldName, db);
-            view.SelectRow(index);
-          }
+          _databases = QueryEngine.GetDatabases(connection);
         }
         catch (Exception ex) {
-          Output.Current.Add("Refresh databases failed", ex.Message, ts.ElapsedMilliseconds);
+          Output.Current.Add("Refresh failed", ex.Message);
           XtraMessageBox.Show(ex.Message.Replace(". ", "." + Environment.NewLine), ex.Source, MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally {
@@ -84,6 +75,52 @@ namespace SQLIndexManager {
         }
       }
     }
+
+    private void ScanDatabasesFinish(object sender, RunWorkerCompletedEventArgs e) {
+      if (_disks.Count > 0) {
+        Text = $"{Resources.DatabaseBoxTitle}      {string.Join("  |  ", _disks.Select(_ => _.ToString()))}";
+      }
+
+      if (_databases.Count > 0) {
+        var max = _databases.Max(_ => _.TotalSize);
+        foreach (var rule in view.FormatRules) {
+          ((FormatConditionRuleDataBar)rule.Rule).Maximum = max;
+        }
+
+        grid.DataSource = _databases;
+
+        foreach (string db in Settings.ActiveHost.Databases) {
+          int index = view.LocateByValue(DatabaseName.FieldName, db);
+          view.SelectRow(index);
+        }
+      }
+
+      _ts.Stop();
+      buttonRefresh.Enabled = true;
+      Output.Current.Add($"Found {_databases.Count} databases", null, _ts.ElapsedMilliseconds);
+    }
+
+    private void RefreshDatabases() {
+      if (_workerScan != null && _workerScan.IsBusy) return;
+
+      Output.Current.Add("Refresh databases...");
+
+      _ts = Stopwatch.StartNew();
+      _databases.Clear();
+      _disks.Clear();
+
+      grid.DataSource = null;
+      buttonOK.Enabled = false;
+      buttonRefresh.Enabled = false;
+      TotalSize.Visible = DataSize.Visible = LogSize.Visible = DataFreeSize.Visible = LogFreeSize.Visible = !Settings.ServerInfo.IsAzure;
+
+      _workerScan = new ThreadWorker() { WorkerSupportsCancellation = true };
+      _workerScan.DoWork += ScanDatabases;
+      _workerScan.RunWorkerCompleted += ScanDatabasesFinish;
+      _workerScan.RunWorkerAsync();
+    }
+
+    #endregion
 
     #region Override Methods
 
@@ -105,41 +142,12 @@ namespace SQLIndexManager {
 
     #region Grid Methods
 
-    private void GridCustomColumnDisplayText(object sender, CustomColumnDisplayTextEventArgs e) {
-      if (e.Value == null)
-        return;
-      
-      if (   e.Column.FieldName == colDataSize.FieldName
-          || e.Column.FieldName == colDataFreeSize.FieldName
-          || e.Column.FieldName == colLogSize.FieldName
-          || e.Column.FieldName == colLogFreeSize.FieldName
-       ) {
-        e.DisplayText = (Convert.ToDecimal(e.Value) * 8).FormatSize();
-      }
-    }
-
     private void GridSelectionChanged(object sender, SelectionChangedEventArgs e) {
-      int[] rows = ((GridView)sender).GetSelectedRows();
-      buttonOK.Enabled = rows.Length > 0;
-    }
-
-    private void GridDoubleClick(object sender, EventArgs e) {
-      GridView obj = (GridView)sender;
-      Point pt = obj.GridControl.PointToClient(MousePosition);
-
-      GridHitInfo info = obj.CalcHitInfo(pt);
-      if (info.Column == null || info.Column.Caption == @"Selection")
-        return;
-
-      if (info.InRow || info.InRowCell) {
-        if (obj.IsRowSelected(info.RowHandle))
-          obj.UnselectRow(info.RowHandle);
-        else
-          obj.SelectRow(info.RowHandle);
-      }
+      buttonOK.Enabled = ((GridView)sender).SelectedRowsCount > 0;
     }
 
     #endregion
+
   }
 
 }

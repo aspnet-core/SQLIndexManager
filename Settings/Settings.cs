@@ -1,14 +1,16 @@
-﻿using Microsoft.Win32;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Xml.Serialization;
+using Microsoft.Win32;
 
 namespace SQLIndexManager {
 
   public class Settings {
+
     private static GlobalSettings _current;
     private static Host _activeHost;
     private static readonly Destructor _finalise = new Destructor();
@@ -18,10 +20,7 @@ namespace SQLIndexManager {
       get => _activeHost;
       set {
         _activeHost = value;
-
-        if (_activeHost == null)
-          return;
-
+        
         Host oldHost = _current.Hosts.FirstOrDefault(_ => string.Equals(_.Server, _activeHost.Server, StringComparison.CurrentCultureIgnoreCase));
         if (oldHost != null) {
           value.Databases = oldHost.Databases;
@@ -65,8 +64,9 @@ namespace SQLIndexManager {
       }
     }
 
-    public static string ExeName => System.Diagnostics.Process.GetCurrentProcess().ProcessName;
+    public static string ExeName => Process.GetCurrentProcess().ProcessName;
     public static string ExePath => Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+    public static string ApplicationName => $"{ExeName}-{Process.GetCurrentProcess().Id}";
 
     public static readonly string LayoutFileName = $"{ExePath}\\{ExeName}.layout";
     public static readonly string SettingFileName = $"{ExePath}\\{ExeName}.cfg";
@@ -86,7 +86,7 @@ namespace SQLIndexManager {
         using (FileStream writer = File.OpenWrite(SettingFileName)) {
           _current.Hosts.RemoveAll(s => !s.IsUserConnection);
           _current.Hosts.ForEach(s => {
-            if (s.AuthType == AuthTypes.SqlServer && s.Password != null) {
+            if (s.AuthType == AuthTypes.SQLSERVER && s.Password != null) {
               s.Password = s.SavePassword
                               ? AES.Encrypt(s.Password)
                               : null;
@@ -113,7 +113,7 @@ namespace SQLIndexManager {
             _current.Hosts.RemoveAll(_ => _.Server == null);
             _current.Hosts.ForEach(s => {
               s.IsUserConnection = true;
-              if (s.AuthType == AuthTypes.SqlServer && !string.IsNullOrEmpty(s.Password)) {
+              if (s.AuthType == AuthTypes.SQLSERVER && !string.IsNullOrEmpty(s.Password)) {
                 s.Password = AES.Decrypt(s.Password);
                 s.SavePassword = true;
               }
@@ -150,6 +150,7 @@ namespace SQLIndexManager {
         _current.Hosts.Add(new Host() { Server = Environment.MachineName });
       }
     }
+
   }
 
 }

@@ -45,15 +45,15 @@ IF OBJECT_ID('tempdb.dbo.#Indexes') IS NOT NULL
 CREATE TABLE #Indexes (
       ObjectID         INT NOT NULL
     , IndexID          INT NOT NULL
-    , IndexName        SYSNAME NULL
     , PagesCount       BIGINT NOT NULL
     , UnusedPagesCount BIGINT NOT NULL
     , PartitionNumber  INT NOT NULL
     , RowsCount        BIGINT NOT NULL
+    , DataCompression  TINYINT NOT NULL
+    , IndexName        SYSNAME NULL
     , IndexType        TINYINT NOT NULL
     , IsAllowPageLocks BIT NOT NULL
     , DataSpaceID      INT NOT NULL
-    , DataCompression  TINYINT NOT NULL
     , IsUnique         BIT NOT NULL
     , IsPK             BIT NOT NULL
     , FillFactorValue  INT NOT NULL
@@ -62,24 +62,36 @@ CREATE TABLE #Indexes (
 )
 
 INSERT INTO #Indexes
-SELECT ObjectID         = i.[object_id]
-     , IndexID          = i.index_id
+SELECT p.ObjectID
+     , p.IndexID
+     , p.PagesCount
+     , p.UnusedPagesCount
+     , p.PartitionNumber
+     , p.RowsCount
+     , p.DataCompression
      , IndexName        = i.[name]
-     , PagesCount       = a.ReservedPages
-     , UnusedPagesCount = CASE WHEN ABS(a.ReservedPages - a.UsedPages) > 32 THEN a.ReservedPages - a.UsedPages ELSE 0 END
-     , PartitionNumber  = p.[partition_number]
-     , RowsCount        = ISNULL(p.[rows], 0)
      , IndexType        = i.[type]
      , IsAllowPageLocks = i.[allow_page_locks]
      , DataSpaceID      = i.[data_space_id]
-     , DataCompression  = p.[data_compression]
      , IsUnique         = i.[is_unique]
      , IsPK             = i.[is_primary_key]
      , FillFactorValue  = i.[fill_factor]
      , IsFiltered       = i.[has_filter]
-FROM #AllocationUnits a
-JOIN #Partitions p ON a.ContainerID = p.[partition_id]
-JOIN sys.indexes i WITH(NOLOCK) ON i.[object_id] = p.[object_id] AND p.[index_id] = i.[index_id] {6}
+FROM (
+    SELECT ObjectID         = p.[object_id]
+         , IndexID          = p.[index_id]
+         , PartitionNumber  = p.[partition_number]
+         , DataCompression  = MAX(p.[data_compression])
+         , RowsCount        = ISNULL(SUM(p.[rows]), 0)
+         , PagesCount       = SUM(a.ReservedPages)
+         , UnusedPagesCount = SUM(CASE WHEN ABS(a.ReservedPages - a.UsedPages) > 32 THEN a.ReservedPages - a.UsedPages ELSE 0 END)
+    FROM #AllocationUnits a
+    JOIN #Partitions p ON a.ContainerID = p.[partition_id]
+    GROUP BY p.[object_id]
+           , p.[index_id]
+           , p.[partition_number]
+) p
+JOIN sys.indexes i WITH(NOLOCK) ON i.[object_id] = p.ObjectID AND i.[index_id] = p.IndexID {6}
 WHERE i.[type] IN ({0})
     AND i.[object_id] > 255
 
@@ -99,7 +111,6 @@ IF @@ROWCOUNT > 0 BEGIN
 
 END
 
-
 DECLARE @DBID   INT
       , @DBNAME SYSNAME
 
@@ -116,6 +127,7 @@ CREATE TABLE #Fragmentation (
     , IndexID          INT NOT NULL
     , PartitionNumber  INT NOT NULL
     , Fragmentation    FLOAT NOT NULL
+    , PageSpaceUsed    FLOAT NULL
     , PRIMARY KEY (ObjectID, IndexID, PartitionNumber)
 )
 {2}
@@ -251,12 +263,15 @@ SELECT i.ObjectID
      , u.LastUsage
      , i.DataCompression
      , f.Fragmentation
+     , f.PageSpaceUsed
      , IndexStats       = STATS_DATE(i.ObjectID, i.IndexID)
      , IsLobLegacy      = ISNULL(lob.IsLobLegacy, 0)
      , IsLob            = ISNULL(lob.IsLob, 0)
      , IsSparse         = CAST(CASE WHEN p.ObjectID IS NULL THEN 0 ELSE 1 END AS BIT)
      , IsPartitioned    = CAST(CASE WHEN dds.[data_space_id] IS NOT NULL THEN 1 ELSE 0 END AS BIT)
      , FileGroupName    = fg.[name]
+     , CreateDate       = o.create_date
+     , ModifyDate       = o.modify_date 
      , i.IsUnique
      , i.IsPK
      , i.FillFactorValue
@@ -270,7 +285,7 @@ LEFT JOIN #AggColumns a ON a.ObjectID = i.ObjectID AND a.IndexID = i.IndexID
 LEFT JOIN #Sparse p ON p.ObjectID = i.ObjectID
 LEFT JOIN #Fragmentation f ON f.ObjectID = i.ObjectID AND f.IndexID = i.IndexID AND f.PartitionNumber = i.PartitionNumber
 LEFT JOIN ({4}) u ON i.ObjectID = u.ObjectID AND i.IndexID = u.IndexID
-LEFT JOIN #Lob lob ON lob.ObjectID = i.ObjectID AND lob.IndexID = i.IndexID
+LEFT JOIN #Lob lob ON lob.ObjectID = i.ObjectID AND (lob.IndexID = i.IndexID OR (i.IndexID IN (0, 1) AND lob.IndexID = 0))
 LEFT JOIN sys.destination_data_spaces dds WITH(NOLOCK) ON i.DataSpaceID = dds.[partition_scheme_id] AND i.PartitionNumber = dds.[destination_id]
 JOIN sys.filegroups fg WITH(NOLOCK) ON ISNULL(dds.[data_space_id], i.DataSpaceID) = fg.[data_space_id] {5}
 WHERE o.[type] IN ('V', 'U')
@@ -318,7 +333,7 @@ SELECT ObjectID   = p.[object_id]
      , PagesCount = SUM(t.[total_pages])
      , IndexStats = STATS_DATE(p.[object_id], 1)
 INTO #AllocationUnits
-FROM sys.partitions p
+FROM sys.partitions p WITH(NOLOCK)
 JOIN (
     SELECT [container_id]
          , [total_pages] = SUM([total_pages])
@@ -330,11 +345,7 @@ WHERE p.[object_id] IN (SELECT DISTINCT i.ObjectID FROM #Indexes i)
     AND p.[index_id] IN (0, 1)
 GROUP BY p.[object_id]
 
-SELECT *, FileGroupName = (
-                  SELECT f.[name]
-                  FROM sys.filegroups f WITH(NOLOCK)
-                  WHERE f.[is_default] = 1
-              )
+SELECT *
 FROM (
     SELECT i.ObjectID
          , ObjectName    = o.[name]
@@ -431,7 +442,7 @@ WHERE [object_id] > 255
     public const string Lob2008 = @"
 INSERT INTO #Lob (ObjectID, IndexID, IsLobLegacy, IsLob)
 SELECT c.ObjectID
-     , IndexID     = ISNULL(i.IndexID, 1)
+     , IndexID     = ISNULL(i.IndexID, 0)
      , IsLobLegacy = MAX(CASE WHEN c.SystemTypeID IN (34, 35, 99) THEN 1 END)
      , IsLob       = MAX(CASE WHEN c.MaxLen = -1 THEN 1 END)
 FROM #Columns c
@@ -444,7 +455,7 @@ GROUP BY c.ObjectID
     public const string Lob2012Plus = @"
 INSERT INTO #Lob (ObjectID, IndexID, IsLobLegacy, IsLob)
 SELECT c.ObjectID
-     , IndexID     = ISNULL(i.IndexID, 1)
+     , IndexID     = ISNULL(i.IndexID, 0)
      , IsLobLegacy = MAX(CASE WHEN c.SystemTypeID IN (34, 35, 99) THEN 1 END)
      , IsLob       = 0
 FROM #Columns c
@@ -471,12 +482,13 @@ FETCH NEXT FROM cur INTO @ObjectID, @IndexID, @PartitionNumber
 
 WHILE @@FETCH_STATUS = 0 BEGIN
 
-    INSERT INTO #Fragmentation (ObjectID, IndexID, PartitionNumber, Fragmentation)
+    INSERT INTO #Fragmentation (ObjectID, IndexID, PartitionNumber, Fragmentation, PageSpaceUsed)
     SELECT @ObjectID
          , @IndexID
          , @PartitionNumber
          , [avg_fragmentation_in_percent]
-    FROM sys.dm_db_index_physical_stats(@DBID, @ObjectID, @IndexID, @PartitionNumber, 'LIMITED') r
+         , [avg_page_space_used_in_percent]
+    FROM sys.dm_db_index_physical_stats(@DBID, @ObjectID, @IndexID, @PartitionNumber, @ScanMode) r
     WHERE [index_level] = 0
         AND [alloc_unit_type_desc] = 'IN_ROW_DATA'
 
@@ -488,13 +500,14 @@ CLOSE cur
 DEALLOCATE cur";
 
     public const string Index2012Plus = @"
-INSERT INTO #Fragmentation (ObjectID, IndexID, PartitionNumber, Fragmentation)
+INSERT INTO #Fragmentation (ObjectID, IndexID, PartitionNumber, Fragmentation, PageSpaceUsed)
 SELECT i.ObjectID
      , i.IndexID
      , i.PartitionNumber
      , r.[avg_fragmentation_in_percent]
+     , r.[avg_page_space_used_in_percent]
 FROM #Indexes i
-CROSS APPLY sys.dm_db_index_physical_stats(@DBID, i.ObjectID, i.IndexID, i.PartitionNumber, 'LIMITED') r
+CROSS APPLY sys.dm_db_index_physical_stats(@DBID, i.ObjectID, i.IndexID, i.PartitionNumber, @ScanMode) r
 WHERE i.PagesCount <= @PreDescribeSize
     AND r.[index_level] = 0
     AND r.[alloc_unit_type_desc] = 'IN_ROW_DATA'
@@ -518,93 +531,98 @@ WHERE Fragmentation >= @Fragmentation
 
     // https://dba.stackexchange.com/questions/44908/what-is-the-actual-behavior-of-compatibility-level-80/
     public const string IndexFragmentation = @"
-DECLARE @DBID INT = DB_ID()
+DECLARE @DBID INT
+SET @DBID = DB_ID()
 
-SELECT [avg_fragmentation_in_percent]
-FROM sys.dm_db_index_physical_stats(@DBID, @ObjectID, @IndexID, @PartitionNumber, 'LIMITED')
+SELECT Fragmentation = [avg_fragmentation_in_percent]
+     , PageSpaceUsed = [avg_page_space_used_in_percent]
+FROM sys.dm_db_index_physical_stats(@DBID, @ObjectID, @IndexID, @PartitionNumber, @ScanMode)
 WHERE [index_level] = 0
     AND [alloc_unit_type_desc] = 'IN_ROW_DATA'
 ";
     
     public const string ServerInfo = @"
-SELECT ProductLevel  = SERVERPROPERTY('ProductLevel')
+SELECT ServerName    = @@SERVERNAME
+     , ProductLevel  = SERVERPROPERTY('ProductLevel')
      , Edition       = SERVERPROPERTY('Edition')
      , ServerVersion = SERVERPROPERTY('ProductVersion')
      , IsSysAdmin    = CAST(IS_SRVROLEMEMBER('sysadmin') AS BIT)
 ";
 
-    public const string DatabaseFullList = @"
+    public const string DatabaseList = @"
 SET NOCOUNT ON
+SET ARITHABORT ON
+SET NUMERIC_ROUNDABORT OFF
+
+IF OBJECT_ID('tempdb.dbo.#Databases') IS NOT NULL
+    DROP TABLE #Databases
+
+CREATE TABLE #Databases (
+      DatabaseID    INT
+    , DatabaseName  NVARCHAR(500)
+    , RecoveryModel NVARCHAR(500)
+    , LogReuseWait  NVARCHAR(500)
+    , HasDBAccess   BIT
+    , CreateDate    DATETIME
+)
+
+INSERT INTO #Databases
+SELECT DatabaseID    = [database_id]
+     , DatabaseName  = [name]
+     , RecoveryModel = [recovery_model_desc]
+     , LogReuseWait  = [log_reuse_wait_desc]
+     , HasDBAccess   = ISNULL(HAS_DBACCESS([name]), 1)
+     , CreateDate    = [create_date]
+FROM sys.databases WITH(NOLOCK)
+WHERE [state] = 0
+    AND [user_access] = 0
 
 IF OBJECT_ID('tempdb.dbo.#UsedSpace') IS NOT NULL
     DROP TABLE #UsedSpace
 
 CREATE TABLE #UsedSpace (
       DatabaseID   INT
+    , DataSize     BIGINT
+    , LogSize      BIGINT
     , DataUsedSize BIGINT
     , LogUsedSize  BIGINT
 )
 
-DECLARE @SQL NVARCHAR(MAX) = (
+DECLARE @SQL NVARCHAR(MAX)
+SET @SQL = (
     SELECT '
-    USE [' + REPLACE(REPLACE([name], ']', ']]'), '[', '[[') + ']
+    USE [' + REPLACE(REPLACE(DatabaseName, ']', ']]'), '[', '[[') + ']
     INSERT INTO #UsedSpace
     SELECT DB_ID()
-         , SUM(CASE WHEN [type] = 0 THEN [size] ELSE 0 END)
-         , SUM(CASE WHEN [type] = 1 THEN [size] ELSE 0 END)
+         , SUM(CASE WHEN [type] = 0 THEN [size] END)
+         , SUM(CASE WHEN [type] = 1 THEN [size] END)
+         , SUM(CASE WHEN [type] = 0 THEN [usedsize] END)
+         , SUM(CASE WHEN [type] = 1 THEN [usedsize] END)
     FROM (
-        SELECT [type], [size] = SUM(CAST(FILEPROPERTY([name], ''SpaceUsed'') AS BIGINT))
+        SELECT [type]
+             , [size] = SUM(CAST([size] AS BIGINT))
+             , [usedsize] = SUM(CAST(FILEPROPERTY([name], ''SpaceUsed'') AS BIGINT))
         FROM sys.database_files WITH(NOLOCK)
+        WHERE [state] = 0
         GROUP BY [type]
     ) t;'
-    FROM sys.databases WITH(NOLOCK)
-    WHERE [state] = 0
-        AND [database_id] != 2
-        AND ISNULL(HAS_DBACCESS([name]), 1) = 1
+    FROM #Databases
+    WHERE HasDBAccess = 1
     FOR XML PATH(''), TYPE).value('(./text())[1]', 'NVARCHAR(MAX)')
 
 EXEC sys.sp_executesql @SQL
 
-SELECT DatabaseName = t.[name]
-     , d.DataSize
+SELECT t.DatabaseName
+     , u.DataSize
      , u.DataUsedSize
-     , d.LogSize
+     , u.LogSize
      , u.LogUsedSize
-     , RecoveryModel = t.recovery_model_desc
-     , LogReuseWait  = t.log_reuse_wait_desc
-FROM sys.databases t WITH(NOLOCK)
-LEFT JOIN #UsedSpace u ON u.DatabaseID = t.[database_id]
-LEFT JOIN (
-    SELECT [database_id]
-         , DataSize = SUM(CASE WHEN [type] = 0 THEN CAST(size AS BIGINT) END)
-         , LogSize  = SUM(CASE WHEN [type] = 1 THEN CAST(size AS BIGINT) END)
-    FROM sys.master_files WITH(NOLOCK)
-    GROUP BY [database_id]
-) d ON d.[database_id] = t.[database_id]
-WHERE t.[state] = 0
-    AND t.[database_id] != 2
-    AND ISNULL(HAS_DBACCESS(t.[name]), 1) = 1
-";
-
-    public const string DatabaseList = @"
-SELECT DatabaseName = t.[name]
-     , d.DataSize
-     , DataUsedSize  = CAST(NULL AS BIGINT)
-     , d.LogSize
-     , LogUsedSize   = CAST(NULL AS BIGINT)
-     , RecoveryModel = t.recovery_model_desc
-     , LogReuseWait  = t.log_reuse_wait_desc
-FROM sys.databases t WITH(NOLOCK)
-LEFT JOIN (
-    SELECT [database_id]
-         , DataSize = SUM(CASE WHEN [type] = 0 THEN CAST(size AS BIGINT) END)
-         , LogSize  = SUM(CASE WHEN [type] = 1 THEN CAST(size AS BIGINT) END)
-    FROM sys.master_files WITH(NOLOCK)
-    GROUP BY [database_id]
-) d ON d.[database_id] = t.[database_id]
-WHERE t.[state] = 0
-    AND t.[database_id] != 2
-    AND ISNULL(HAS_DBACCESS(t.[name]), 1) = 1
+     , t.RecoveryModel
+     , t.LogReuseWait
+     , t.CreateDate
+FROM #Databases t
+LEFT JOIN #UsedSpace u ON u.DatabaseID = t.DatabaseID
+WHERE t.HasDBAccess = 1
 ";
 
     public const string DatabaseListAzure = @"
@@ -613,8 +631,9 @@ SELECT DatabaseName  = [name]
      , DataUsedSize  = CAST(NULL AS BIGINT)
      , LogSize       = CAST(NULL AS BIGINT)
      , LogUsedSize   = CAST(NULL AS BIGINT)
-     , RecoveryModel = recovery_model_desc
-     , LogReuseWait  = log_reuse_wait_desc
+     , RecoveryModel = [recovery_model_desc]
+     , LogReuseWait  = [log_reuse_wait_desc]
+     , CreateDate    = [create_date]
 FROM sys.databases WITH(NOLOCK)
 WHERE [state] = 0
     AND ISNULL(HAS_DBACCESS([name]), 1) = 1
@@ -648,12 +667,13 @@ WHERE [object_id] = {0}
     AND [partition_number] = {2}
 
 SELECT Fragmentation    = [avg_fragmentation_in_percent]
+     , PageSpaceUsed    = [avg_page_space_used_in_percent]
      , PagesCount       = ISNULL(@ReservedPageCount, 0)
      , UnusedPagesCount = ISNULL(CASE WHEN ABS(@ReservedPageCount - @UnusedPagesCount) > 32 THEN @ReservedPageCount - @UnusedPagesCount END, 0)
      , RowsCount        = ISNULL(@RowsCount, 0)
      , IndexStats       = STATS_DATE({0}, {1})
      , DataCompression  = @Compression
-FROM sys.dm_db_index_physical_stats(@DBID, {0}, {1}, {2}, 'LIMITED')
+FROM sys.dm_db_index_physical_stats(@DBID, {0}, {1}, {2}, '{3}')
 WHERE [index_level] = 0
     AND [alloc_unit_type_desc] = 'IN_ROW_DATA'
 ";
@@ -672,6 +692,7 @@ WHERE [index_id] = {1}
     AND [partition_number] = {2}
 
 SELECT Fragmentation    = @Fragmentation
+     , PageSpaceUsed    = NULL
      , PagesCount       = ISNULL(@PagesCount, 0)
      , UnusedPagesCount = ISNULL(@UnusedPageCount, 0)
      , RowsCount        = ISNULL([rows], 0)
@@ -682,6 +703,24 @@ WHERE [object_id] = {0}
     AND [index_id] = {1}
     AND [partition_number] = {2}
 ";
+
+    public const string KillActiveSessions = @"
+DECLARE @SQL NVARCHAR(MAX)
+SELECT @SQL = (
+    SELECT CHAR(13) + 'KILL ' + CAST([session_id] AS NVARCHAR(100))
+    FROM sys.dm_exec_sessions
+    WHERE [program_name] = @ApplicationName
+        AND [status] = 'running'
+        AND [session_id] != @@SPID
+    FOR XML PATH(''), TYPE).value('(./text())[1]', 'NVARCHAR(MAX)')
+
+EXEC sys.sp_executesql @SQL
+";
+
+    public const string DiskInfo = @"
+EXEC sys.xp_fixeddrives
+";
+
   }
 
 }

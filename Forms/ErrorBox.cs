@@ -1,22 +1,23 @@
-﻿using DevExpress.XtraEditors;
-using System;
+﻿using System;
 using System.Reflection;
 using System.Windows.Forms;
+using DevExpress.XtraEditors;
 
 namespace SQLIndexManager {
 
   public partial class ErrorBox : XtraForm {
+
     public ErrorBox(Exception ex) {
       InitializeComponent();
 
       edError.Text =
-        @"Application has encountered an unexpected error" +
-        @"\r\nPlease send error detail to sergey.syrovatchenko@gmail.com" +
-        $@"\r\nBuild: {AssemblyVersion}" +
-        $@"\r\nOS: {Environment.OSVersion}" +
-        $@"\r\n\r\n{ex.Message}" +
-        $@"\r\n{ex.Source}" +
-        $@"\r\n{ex.StackTrace}";
+        "Application has encountered an unexpected error" +
+        $"{Environment.NewLine}Please send error detail to https://github.com/sergiisyrovatchenko/SQLIndexManager/issues" +
+        $"{Environment.NewLine}Build: {AssemblyVersion}" +
+        $"{Environment.NewLine}OS: {Environment.OSVersion}" +
+        $"{Environment.NewLine}{Environment.NewLine}{ex.Message}" +
+        $"{Environment.NewLine}{ex.Source}" +
+        $"{Environment.NewLine}{ex.StackTrace}";
     }
 
     private static string AssemblyVersion => Assembly.GetExecutingAssembly().GetName().Version.ToString();
@@ -33,6 +34,7 @@ namespace SQLIndexManager {
     }
 
     #endregion
+
   }
 
 }

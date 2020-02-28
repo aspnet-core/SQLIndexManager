@@ -1,14 +1,15 @@
-﻿using DevExpress.LookAndFeel;
-using DevExpress.Skins;
-using System;
+﻿using System;
 using System.Globalization;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using DevExpress.LookAndFeel;
+using DevExpress.Skins;
 
 namespace SQLIndexManager {
 
   static class Program {
+
     [STAThread]
     static void Main(string[] args) {
       CultureInfo culture = CultureInfo.CreateSpecificCulture("en-US");
@@ -66,6 +67,7 @@ namespace SQLIndexManager {
       else
         Console.OutputEncoding = (Encoding)Console.OutputEncoding.Clone();
     }
+
   }
 
 }

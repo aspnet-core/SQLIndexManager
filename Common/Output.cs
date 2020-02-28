@@ -1,19 +1,22 @@
-﻿using DevExpress.XtraBars;
-using DevExpress.XtraGrid;
-using DevExpress.XtraGrid.Views.Grid;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using DevExpress.XtraBars;
+using DevExpress.XtraGrid;
+using DevExpress.XtraGrid.Views.Grid;
 
 namespace SQLIndexManager {
 
   public class OutputEvent {
+
     public DateTime DateTime { get; set; }
     public string Message { get; set; }
     public DateTime? Duration { get; set; }
+
   }
 
   public class Output {
+
     private static Output _log;
     private readonly List<OutputEvent> _events;
     private BarStaticItem _control;
@@ -57,7 +60,7 @@ namespace SQLIndexManager {
 
       OutputEvent ev = new OutputEvent {
         DateTime = now,
-        Message = string.IsNullOrEmpty(message2) ? message : $"{message}\n{message2}",
+        Message = string.IsNullOrEmpty(message2) ? message : $"{message}{Environment.NewLine}{message2}",
         Duration = duration
       };
 
@@ -81,6 +84,7 @@ namespace SQLIndexManager {
       }
       catch { }
     }
+
   }
 
 }

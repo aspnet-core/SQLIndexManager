@@ -61,6 +61,24 @@ namespace SQLIndexManager.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to CreateDate.
+        /// </summary>
+        internal static string CreateDate {
+            get {
+                return ResourceManager.GetString("CreateDate", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Select Databases.
+        /// </summary>
+        internal static string DatabaseBoxTitle {
+            get {
+                return ResourceManager.GetString("DatabaseBoxTitle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to DatabaseName.
         /// </summary>
         internal static string DatabaseName {
@@ -147,6 +165,15 @@ namespace SQLIndexManager.Properties {
         internal static string FillFactor {
             get {
                 return ResourceManager.GetString("FillFactor", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Fix.
+        /// </summary>
+        internal static string Fix {
+            get {
+                return ResourceManager.GetString("Fix", resourceCulture);
             }
         }
         
@@ -388,6 +415,15 @@ namespace SQLIndexManager.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to ModifyDate.
+        /// </summary>
+        internal static string ModifyDate {
+            get {
+                return ResourceManager.GetString("ModifyDate", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to ObjectID.
         /// </summary>
         internal static string ObjectID {
@@ -420,6 +456,15 @@ namespace SQLIndexManager.Properties {
         internal static string PagesCountBefore {
             get {
                 return ResourceManager.GetString("PagesCountBefore", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to PageSpaceUsed.
+        /// </summary>
+        internal static string PageSpaceUsed {
+            get {
+                return ResourceManager.GetString("PageSpaceUsed", resourceCulture);
             }
         }
         
@@ -474,6 +519,24 @@ namespace SQLIndexManager.Properties {
         internal static string SchemaName {
             get {
                 return ResourceManager.GetString("SchemaName", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Selection.
+        /// </summary>
+        internal static string Selection {
+            get {
+                return ResourceManager.GetString("Selection", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to ServerName.
+        /// </summary>
+        internal static string ServerName {
+            get {
+                return ResourceManager.GetString("ServerName", resourceCulture);
             }
         }
         

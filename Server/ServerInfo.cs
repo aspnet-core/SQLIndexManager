@@ -1,92 +1,49 @@
 ﻿namespace SQLIndexManager {
 
   public class ServerInfo {
+    public readonly string ServerName;
+    private readonly string ProductLevel;
+    private readonly string Edition;
+    public readonly bool IsSysAdmin;
+    private readonly string Version;
 
-    private string ProductLevel;
-    private string Edition;
-    public bool IsSysAdmin;
-    public string ServerVersion;
-    public string Version => $"SQL Server {ProductVersion} {ProductLevel} ({ServerVersion}) {Edition}";
+    public readonly int MajorVersion;
+    private readonly int MinorVersion;
+    private readonly int PatchVersion;
 
     public bool IsAzure => Edition == "SQL Azure";
     private bool IsMaxEdititon => Edition.StartsWith("Enterprise") || Edition.StartsWith("Developer");
+    public override string ToString() => $"SQL Server {ProductVersion} {ProductLevel} ({Version}) {Edition}";
 
-    public int MajorVersion;
-    private int MinorVersion;
-    private int PatchVersion;
+    public bool IsColumnstoreAvailable => IsAzure
+         || (MajorVersion >= ServerVersion.Sql2014 && IsMaxEdititon)
+         || (MajorVersion == ServerVersion.Sql2016 && PatchVersion >= 4001)
+         || MajorVersion >= ServerVersion.Sql2017;
 
-    public bool IsColumnstoreAvailable {
-      get {
-        if (
-            (MajorVersion >= Server.Sql2014 && IsMaxEdititon) // 2014..2019 Enterprise/Developer/Evaluation
-         ||
-            (MajorVersion == Server.Sql2016 && PatchVersion >= 4001) // 2016 SP1
-         ||
-            (MajorVersion >= Server.Sql2017)
-        ) {
-          return true;
-        }
+    public bool IsCompressionAvailable => IsAzure
+         || (MajorVersion >= ServerVersion.Sql2008 && IsMaxEdititon)
+         || (MajorVersion == ServerVersion.Sql2016 && PatchVersion >= 4001)
+         || MajorVersion >= ServerVersion.Sql2017;
 
-        return false;
-      }
-    }
-
-    public bool IsCompressionAvailable {
-      get {
-        if (
-            (MajorVersion >= Server.Sql2008 && IsMaxEdititon)
-         ||
-            (MajorVersion == Server.Sql2016 && PatchVersion >= 4001) // 2016 SP1
-         ||
-            (MajorVersion >= Server.Sql2017)
-        ) {
-          return true;
-        }
-
-        return false;
-      }
-    }
-
-    public bool IsOnlineRebuildAvailable {
-      get {
-        if (MajorVersion >= Server.Sql2008 && IsMaxEdititon)
-        {
-          if (
-              (MajorVersion == Server.Sql2014 && PatchVersion < 2370) // 2014 RTM
-           ||
-              (MajorVersion == Server.Sql2012 && (
-                                                     PatchVersion < 3437 // 2012 RTM..SP1
-                                                  ||
-                                                     PatchVersion.IsBetween(5058, 5521) // 2012 SP2
-                                                 )
-              )
-          ) {
-            return false; // https://sqlperformance.com/2014/06/sql-indexes/hotfix-sql-2012-rebuilds
-          }
-
-          return true;
-        }
-
-        return false;
-      }
-    }
+    public bool IsOnlineRebuildAvailable => IsAzure
+         || (MajorVersion >= ServerVersion.Sql2008 && IsMaxEdititon);
 
     public string ProductVersion {
       get {
         switch (MajorVersion) {
-          case Server.Sql2005:
+          case ServerVersion.Sql2005:
             return "2005";
-          case Server.Sql2008:
+          case ServerVersion.Sql2008:
             return MinorVersion == 50 ? "2008 R2" : "2008";
-          case Server.Sql2012:
+          case ServerVersion.Sql2012:
             return "2012";
-          case Server.Sql2014:
+          case ServerVersion.Sql2014:
             return "2014";
-          case Server.Sql2016:
+          case ServerVersion.Sql2016:
             return "2016";
-          case Server.Sql2017:
+          case ServerVersion.Sql2017:
             return "2017";
-          case Server.Sql2019:
+          case ServerVersion.Sql2019:
             return "2019";
           default:
             return "?";
@@ -94,16 +51,18 @@
       }
     }
 
-    public ServerInfo(string productLevel, string edition, string serverVersion, bool isSysAdmin) {
+    public ServerInfo(string serverName, string productLevel, string edition, string serverVersion, bool isSysAdmin) {
+      ServerName = serverName;
       ProductLevel = productLevel;
       Edition = edition;
-      ServerVersion = serverVersion;
+      Version = serverVersion;
       IsSysAdmin = isSysAdmin;
 
       MajorVersion = int.Parse(serverVersion.Split('.')[0]);
       MinorVersion = int.Parse(serverVersion.Split('.')[1]);
       PatchVersion = int.Parse(serverVersion.Split('.')[2]);
     }
+
   }
 
 }

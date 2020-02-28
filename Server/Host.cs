@@ -32,13 +32,10 @@ namespace SQLIndexManager {
     public ServerInfo ServerInfo;
 
     public Host() {
-      AuthType = AuthTypes.Windows;
+      AuthType = AuthTypes.WINDOWS;
       Databases = new List<string>();
     }
 
-    public override string ToString() {
-      return $"{Server} | {ServerInfo.Version}";
-    }
   }
 
 }

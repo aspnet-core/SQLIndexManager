@@ -3,6 +3,8 @@
 This tool lets you quickly and easily find out the status of your indexes and discover which databases need maintenance.   
 You can do maintenance through the UI, or generate a T-SQL script to run in SSMS.
 
+[SQL Index Manager – Free GUI Tool for Index Maintenance on SQL Server and Azure](https://www.codeproject.com/Articles/5162340/SQL-Index-Manager-Free-GUI-Tool-for-Index-Maintena)
+
 ## Key Features
 
 * An incredibly fast describe engine
@@ -14,6 +16,7 @@ You can do maintenance through the UI, or generate a T-SQL script to run in SSMS
 * Command-line automation
 * Automatic T-SQL script generation
 * Columnstore maintenance support
+* Statistics maintenance
 * Collecting missing indexes
 * Detect duplicate indexes
 * Drop or disable unused indexes
@@ -26,20 +29,11 @@ You can do maintenance through the UI, or generate a T-SQL script to run in SSMS
 
 You can download .zip file with the latest build of the master branch from [Releases](https://github.com/sergeysyrovatchenko/SQLIndexManager/releases)
 
-## Future Plans
-
-* Improvements in command-line automation
-* Statistics maintenance
-
-## Topics
-
-[SQL Index Manager – Free GUI Tool for Index Maintenance on SQL Server and Azure](https://www.codeproject.com/Articles/5162340/SQL-Index-Manager-Free-GUI-Tool-for-Index-Maintena)
-
 ## Screenshots
 
-![SQL Index Manager](https://habrastorage.org/webt/bw/6n/ma/bw6nmab-z9tlc5q1rud1rmdjj34.png)
-![SQL Index Manager](https://habrastorage.org/webt/vj/vi/ts/vjvits-lmjukoi35ra_3bjt8pdq.png)
-![SQL Index Manager](https://habrastorage.org/webt/kd/em/xj/kdemxjo8sj0hxa4y_omvv3dph6a.png)
+![SQL Index Manager](https://habrastorage.org/webt/jw/8s/vk/jw8svkqqg0ybvtdgt1cdoiulxsm.png)
+![SQL Index Manager](https://habrastorage.org/webt/oq/rf/br/oqrfbrezv3yay64mj4gzpt9cjei.png)
+![SQL Index Manager](https://habrastorage.org/webt/gr/qb/sq/grqbsqiogtwyppsqulsc73p4fl0.png)
 
 ## Command Line
 
@@ -75,6 +69,10 @@ This switch is used to ignore any columnstore indexes during maintenance
 
 This switch is used to ignore any b-tree indexes during maintenance
 
+**/missingindex**
+
+Including missing indexes into regular maintenance
+
 **/maxdop 8**
 
 Configure the max degree of parallelism during maintenance. Overrides server option
@@ -98,7 +96,3 @@ This switch is used to specify the predescribe index size in MB. Overrides globa
 **/maxindexsize 8096**
 
 This switch is used to specify the maximun index size in MB. Overrides global option (8 GB)
-
-## Thanks
-
-[Ievgenii Vasyliev](https://www.linkedin.com/in/ievgenii-vasyliev-a672bb78/) - for his help in the development and implementation of the command line

@@ -1,13 +1,13 @@
-﻿using DevExpress.Utils;
-using DevExpress.XtraEditors;
+﻿using System;
 using System.Diagnostics;
 using System.Reflection;
 using System.Windows.Forms;
+using DevExpress.Utils;
+using DevExpress.XtraEditors;
 
 namespace SQLIndexManager {
 
   public partial class AboutBox : XtraForm {
-    const string Mail = "sergey.syrovatchenko@gmail.com";
 
     public AboutBox() {
       InitializeComponent();
@@ -17,23 +17,28 @@ namespace SQLIndexManager {
       var product = (AssemblyProductAttribute)assembly.GetCustomAttributes(typeof(AssemblyProductAttribute), false)[0];
       var copyright = (AssemblyCopyrightAttribute)assembly.GetCustomAttributes(typeof(AssemblyCopyrightAttribute), false)[0];
 
-      labelMail.Text = Mail;
       labelProductName.Text = title.Title;
       labelProductDescription.Text = product.Product;
       labelCopyright.Text = copyright.Copyright;
       labelVersion.Text = assembly.GetName().Version.ToString();
     }
 
-    private void labelMail_HyperlinkClick(object sender, HyperlinkClickEventArgs e) {
-      Process.Start($"mailto:{Mail}");
-    }
-
     private void Copyright_HyperlinkClick(object sender, HyperlinkClickEventArgs e) {
-      Process.Start("www.linkedin.com/in/sergeysyrovatchenko");
+      RunHyperlink("www.linkedin.com/in/sergiisyrovatchenko");
     }
 
     private void GitHub_HyperlinkClick(object sender, HyperlinkClickEventArgs e) {
-      Process.Start("www.github.com/sergeysyrovatchenko/SQLIndexManager");
+      RunHyperlink("www.github.com/sergiisyrovatchenko/SQLIndexManager");
+    }
+
+    private void RunHyperlink(string hyperlink) {
+      try {
+        Process.Start(hyperlink);
+      }
+      catch (Exception ex) {
+        Output.Current.Add($"Error: {ex.Source}", ex.Message);
+        XtraMessageBox.Show(ex.Message.Replace(". ", "." + Environment.NewLine), ex.Source, MessageBoxButtons.OK, MessageBoxIcon.Error);
+      }
     }
 
     #region Override Methods
@@ -49,6 +54,7 @@ namespace SQLIndexManager {
 
 
     #endregion
+
   }
 
 }

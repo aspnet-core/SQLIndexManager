@@ -6,23 +6,45 @@ namespace SQLIndexManager {
 
   [Serializable]
   public class Options {
-    private int _reorganizeThreshold = 15;
-    private int _rebuildThreshold = 30;
+
+    private IndexOp _skipOperation = IndexOp.IGNORE;
+    private IndexOp _firstOperation = IndexOp.REORGANIZE;
+    private IndexOp _secondOperation = IndexOp.REBUILD;
+    private int _firstThreshold = 15;
+    private int _secondThreshold = 30;
     private int _minIndexSize = 6;
     private int _preDescribeSize = 256;
     private int _maxIndexSize = 8192;
     private int _connectionTimeout = 15;
     private int _commandTimeout = 120;
+    private int _delayAfterFix;
     private int _maxDop;
     private int _fillFactor;
     private int _sampleStatsPercent = 100;
     private int _maxDuration = 1;
-    private string _abortAfterWait = "NONE";
-    private string _dataCompression = "DEFAULT";
+    private DataCompression _dataCompression;
     private List<string> _includeSchemas = new List<string>();
     private List<string> _excludeSchemas = new List<string>();
     private List<string> _includeObject = new List<string>();
     private List<string> _excludeObject = new List<string>();
+
+    public Options() {
+      SortInTempDb = true;
+      LobCompaction = true;
+      ScanHeap = true;
+      ScanClusteredIndex = true;
+      ScanNonClusteredIndex = true;
+      ScanClusteredColumnstore = true;
+      ScanNonClusteredColumnstore = true;
+      IgnorePermissions = true;
+      IgnoreReadOnlyFL = true;
+      ShowSettingsWhenConnectionChanged = true;
+
+      ScanMode = ScanMode.LIMITED;
+      DataCompression = DataCompression.DEFAULT;
+      NoRecompute = NoRecompute.DEFAULT;
+      AbortAfterWait = AbortAfterWait.NONE;
+    }
 
     [XmlAttribute]
     public int ConnectionTimeout {
@@ -37,15 +59,39 @@ namespace SQLIndexManager {
     }
 
     [XmlAttribute]
-    public int ReorganizeThreshold {
-      get => _reorganizeThreshold;
-      set => UpdateThreshold(value, _rebuildThreshold);
+    public IndexOp SkipOperation {
+      get => _skipOperation;
+      set => _skipOperation = CheckAllowedIndexOp(value, _skipOperation, true);
     }
 
     [XmlAttribute]
-    public int RebuildThreshold {
-      get => _rebuildThreshold;
-      set => UpdateThreshold(_reorganizeThreshold, value);
+    public IndexOp FirstOperation {
+      get => _firstOperation;
+      set => _firstOperation = CheckAllowedIndexOp(value, _firstOperation);
+    }
+
+    [XmlAttribute]
+    public IndexOp SecondOperation {
+      get => _secondOperation;
+      set => _secondOperation = CheckAllowedIndexOp(value, _secondOperation);
+    }
+
+    [XmlAttribute]
+    public int FirstThreshold {
+      get => _firstThreshold;
+      set => UpdateThreshold(value, _secondThreshold);
+    }
+
+    [XmlAttribute]
+    public int SecondThreshold {
+      get => _secondThreshold;
+      set => UpdateThreshold(_firstThreshold, value);
+    }
+
+    [XmlAttribute]
+    public int DelayAfterFix {
+      get => _delayAfterFix;
+      set => _delayAfterFix = value.IsBetween(0, 5000) ? value : _delayAfterFix;
     }
 
     [XmlAttribute]
@@ -85,7 +131,13 @@ namespace SQLIndexManager {
     }
 
     [XmlAttribute]
+    public bool ShowSettingsWhenConnectionChanged;
+
+    [XmlAttribute]
     public bool Online;
+
+    [XmlAttribute]
+    public bool PadIndex;
 
     [XmlAttribute]
     public bool SortInTempDb;
@@ -151,29 +203,43 @@ namespace SQLIndexManager {
     }
 
     [XmlAttribute]
-    public string DataCompression {
+    public NoRecompute NoRecompute;
+
+    [XmlAttribute]
+    public DataCompression DataCompression {
       get => _dataCompression;
-      set => _dataCompression = (value == "DEFAULT" || value == "NONE" || value == "ROW" || value == "PAGE") ? value : _dataCompression;
+      set => _dataCompression = (value != DataCompression.COLUMNSTORE && value != DataCompression.COLUMNSTORE_ARCHIVE) ? value : _dataCompression;
     }
 
     [XmlAttribute]
-    public string AbortAfterWait {
-      get => _abortAfterWait;
-      set => _abortAfterWait = (value == "NONE" || value == "SELF" || value == "BLOCKERS") ? value : _abortAfterWait;
+    public AbortAfterWait AbortAfterWait;
+
+    [XmlAttribute]
+    public ScanMode ScanMode;
+
+    private IndexOp CheckAllowedIndexOp(IndexOp newValue, IndexOp oldValue, bool isSkip = false) {
+      return (newValue == IndexOp.REBUILD 
+           || newValue == IndexOp.REORGANIZE
+           || newValue == IndexOp.UPDATE_STATISTICS_FULL
+           || newValue == IndexOp.UPDATE_STATISTICS_RESAMPLE
+           || newValue == IndexOp.UPDATE_STATISTICS_SAMPLE
+           || (isSkip && newValue == IndexOp.NO_ACTION)
+           || (isSkip && newValue == IndexOp.IGNORE)
+        ) ? newValue : oldValue;
     }
 
-    private void UpdateThreshold(int reorganize, int rebuild) {
-      _reorganizeThreshold = reorganize.IsBetween(0, 99) ? reorganize : _reorganizeThreshold;
-      _rebuildThreshold = rebuild.IsBetween(1, 100) ? rebuild : _rebuildThreshold;
+    private void UpdateThreshold(int first, int second) {
+      _firstThreshold = first.IsBetween(1, 99) ? first : _firstThreshold;
+      _secondThreshold = second.IsBetween(2, 100) ? second : _secondThreshold;
 
-      if (_reorganizeThreshold > _rebuildThreshold)
-        _rebuildThreshold = _reorganizeThreshold + 1;
+      if (_firstThreshold > _secondThreshold)
+        _secondThreshold = _firstThreshold + 1;
 
-      if (_reorganizeThreshold == _rebuildThreshold) {
-        if (_reorganizeThreshold > 0)
-          _reorganizeThreshold -= 1;
+      if (_firstThreshold == _secondThreshold) {
+        if (_firstThreshold > 0)
+          _firstThreshold -= 1;
         else
-          _rebuildThreshold += 1;
+          _secondThreshold += 1;
       }
     }
 
@@ -193,17 +259,6 @@ namespace SQLIndexManager {
       }
     }
 
-    public Options() {
-      SortInTempDb = true;
-      LobCompaction = true;
-      ScanHeap = true;
-      ScanClusteredIndex = true;
-      ScanNonClusteredIndex = true;
-      ScanClusteredColumnstore = true;
-      ScanNonClusteredColumnstore = true;
-      IgnorePermissions = true;
-      IgnoreReadOnlyFL = true;
-    }
   }
 
 }
